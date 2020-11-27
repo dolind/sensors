@@ -5,20 +5,20 @@
 # Based on https://github.com/UedaTakeyuki/mh-z19, and distributed under the
 # MIT License. I refactored the script, removed support for Python 2, and
 # simplified some things.
-# 
+#
 # Copyright (c) 2018 Dr. Takeyuki Ueda
 # Copyright (c) 2020 Janwillem Swalens
-# 
+#
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -43,13 +43,15 @@ def current_time():
     now = datetime.datetime.now().astimezone(TIMEZONE)
     return now.strftime('%Y-%m-%dT%H:%M:%S%z')
 
-def connect():
-    return serial.Serial(DEVICE_PATH, baudrate=9600, timeout=3.0)
 
-def read_all():
-    with connect() as ser:
-        ser.write(b"\xff\x01\x86\x00\x00\x00\x00\x00\x79")
-        r = ser.read(9)
+class Mhz19:
+    def __init__(self):
+
+        self.ser = serial.Serial(DEVICE_PATH, baudrate=9600, timeout=3.0)
+
+    def read_all(self):
+        self.ser.write(b"\xff\x01\x86\x00\x00\x00\x00\x00\x79")
+        r = self.ser.read(9)
 
         if len(r) == 9 and r[0] == 0xff and r[1] == 0x86:
             return {"time": current_time(),
@@ -62,46 +64,44 @@ def read_all():
         else:
             raise Exception("got unexpected answer %s" % r)
 
-def read():
-    result = read_all()
-    return {"time": current_time(), "co2": result["co2"]}
+    def read(self):
+        result = self.read_all()
+        return {"time": current_time(), "co2": result["co2"]}
 
-def abc_on():
-    with connect() as ser:
-        ser.write(b"\xff\x01\x79\xa0\x00\x00\x00\x00\xe6")
+    def abc_on(self):
+        self.ser.write(b"\xff\x01\x79\xa0\x00\x00\x00\x00\xe6")
 
-def abc_off():
-    with connect() as ser:
-        ser.write(b"\xff\x01\x79\x00\x00\x00\x00\x00\x86")
+    def abc_off(self):
+        self.ser.write(b"\xff\x01\x79\x00\x00\x00\x00\x00\x86")
 
-def zero_point_calibration():
-    with connect() as ser:
-        ser.write(b"\xff\x01\x87\x00\x00\x00\x00\x00\x78")
+    def zero_point_calibration(self):
+        self.ser.write(b"\xff\x01\x87\x00\x00\x00\x00\x00\x78")
 
-def span_point_calibration(span):
-    with connect() as ser:
+    def span_point_calibration(self, span):
         b3 = span // 256
         byte3 = struct.pack("B", b3)
         b4 = span % 256
         byte4 = struct.pack("B", b4)
-        c = checksum([0x01, 0x88, b3, b4])
+        c = self.checksum([0x01, 0x88, b3, b4])
         request = b"\xff\x01\x88" + byte3 + byte4 + b"\x00\x00\x00" + c
-        ser.write(request)
+        self.ser.write(request)
 
-def detection_range_2000():
-    with connect() as ser:
-        ser.write(b"\xff\x01\x99\x00\x00\x00\x07\xd0\x8f")
+    def detection_range_2000(self):
+        self.ser.write(b"\xff\x01\x99\x00\x00\x00\x07\xd0\x8f")
 
-def detection_range_5000():
-    with connect() as ser:
-        ser.write(b"\xff\x01\x99\x00\x00\x00\x13\x88\xcb")
+    def detection_range_5000(self):
+        self.ser.write(b"\xff\x01\x99\x00\x00\x00\x13\x88\xcb")
 
-def detection_range_10000():
-    with connect() as ser:
-        ser.write(b"\xff\x01\x99\x00\x00\x00\x27\x10\x2f")
+    def detection_range_10000(self):
+        self.ser.write(b"\xff\x01\x99\x00\x00\x00\x27\x10\x2f")
 
-def checksum(array):
-    return struct.pack("B", 0xff - (sum(array) % 0x100) + 1)
+    def checksum(self, array):
+        return struct.pack("B", 0xff - (sum(array) % 0x100) + 1)
+
+    def __del__(self):
+        self.ser.cancel_read()
+        self.ser.close()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -147,30 +147,31 @@ if __name__ == "__main__":
     if args.serial_device is not None:
         DEVICE_PATH = args.serial_device
 
+    aMhz19 = Mhz19()
     if args.abc_on:
-        abc_on()
+        aMhz19.abc_on()
         print("ABC on")
     elif args.abc_off:
-        abc_off()
+        aMhz19.abc_off()
         print("ABC off")
     elif args.span_point_calibration is not None:
-        span_point_calibration(args.span_point_calibration)
+        aMhz19.span_point_calibration(args.span_point_calibration)
         print("Calibration with SPAN point")
     elif args.zero_point_calibration:
         print("Calibration with ZERO point")
-        zero_point_calibration()
+        aMhz19.zero_point_calibration()
     elif args.detection_range_2000:
-        detection_range_2000()
+        aMhz19.detection_range_2000()
         print("Detection range set to 0-2000ppm")
     elif args.detection_range_5000:
-        detection_range_5000()
+        aMhz19.detection_range_5000()
         print("Detection range set to 0-5000ppm")
     elif args.detection_range_10000:
-        detection_range_10000()
+        aMhz19.detection_range_10000()
         print("Detection range set to 0-10000ppm")
     elif args.version:
         print(VERSION)
     elif args.all:
-        print(json.dumps(read_all()))
+        print(json.dumps(aMhz19.read_all()))
     else:
-        print(json.dumps(read()))
+        print(json.dumps(aMhz19.read()))
